@@ -1,4 +1,4 @@
-import { CachedRouteKind, IncrementalCacheKind } from '../../response-cache'
+import { CachedRouteKind } from '../../response-cache'
 import FileSystemCache from './file-system-cache'
 
 describe('FileSystemCache', () => {
