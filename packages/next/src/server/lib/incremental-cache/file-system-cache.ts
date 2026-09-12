@@ -84,15 +84,19 @@ export default class FileSystemCache implements CacheHandler {
       const existingEntry = tagsManifest.get(tag) || {}
 
       if (durations) {
+        // Use provided durations directly
         const updates: TagManifestEntry = { ...existingEntry }
+
+        // mark as stale immediately
         updates.stale = now
 
         if (durations.expire !== undefined) {
-          updates.expired = now + durations.expire * 1000
+          updates.expired = now + durations.expire * 1000 // Convert seconds to ms
         }
 
         tagsManifest.set(tag, updates)
       } else {
+        // Update expired field for immediate expiration (default behavior when no durations provided)
         tagsManifest.set(tag, { ...existingEntry, expired: now })
       }
     }
@@ -112,6 +116,7 @@ export default class FileSystemCache implements CacheHandler {
       }
     }
 
+    // let's check the disk for seed data
     if (!data && process.env.NEXT_RUNTIME !== 'edge') {
       try {
         if (kind === IncrementalCacheKind.APP_ROUTE) {
@@ -162,6 +167,9 @@ export default class FileSystemCache implements CacheHandler {
             if (data.value?.kind === CachedRouteKind.FETCH) {
               const storedTags = data.value?.tags
 
+              // update stored tags if a new one is being added
+              // TODO: remove this when we can send the tags
+              // via header on GET same as SET
               if (!tags?.every((tag) => storedTags?.includes(tag))) {
                 if (FileSystemCache.debug) {
                   console.log(
@@ -179,6 +187,8 @@ export default class FileSystemCache implements CacheHandler {
               }
             }
           } else if (kind === IncrementalCacheKind.APP_PAGE) {
+            // We try to load the metadata file, but if it fails, we don't
+            // error. We also don't load it if this is a fallback.
             let meta: RouteMetadata | undefined
             try {
               meta = JSON.parse(
@@ -191,6 +201,11 @@ export default class FileSystemCache implements CacheHandler {
 
             let maybeSegmentData: Map<string, Buffer> | undefined
             if (meta?.segmentPaths) {
+              // Collect all the segment data for this page.
+              // TODO: To optimize file system reads, we should consider creating
+              // separate cache entries for each segment, rather than storing them
+              // all on the page's entry. Though the behavior is
+              // identical regardless.
               const segmentData: Map<string, Buffer> = new Map()
               maybeSegmentData = segmentData
               const segmentsDir = key + RSC_SEGMENTS_DIR_SUFFIX
@@ -289,6 +304,9 @@ export default class FileSystemCache implements CacheHandler {
       if (typeof tagsHeader === 'string') {
         const cacheTags = tagsHeader.split(',')
 
+        // we trigger a blocking validation if an ISR page
+        // had a tag revalidated, if we want to be a background
+        // revalidation instead we return data.lastModified = -1
         if (
           cacheTags.length > 0 &&
           areTagsExpired(cacheTags, data.lastModified)
@@ -306,6 +324,8 @@ export default class FileSystemCache implements CacheHandler {
           ? [...(ctx.tags || []), ...(ctx.softTags || [])]
           : []
 
+      // When revalidate tag is called we don't return stale data so it's
+      // updated right away.
       if (combinedTags.some((tag) => this.revalidatedTags.includes(tag))) {
         if (FileSystemCache.debug) {
           console.log('FileSystemCache: was revalidated', combinedTags)
@@ -342,6 +362,8 @@ export default class FileSystemCache implements CacheHandler {
 
     if (!this.flushToDisk || !data) return
 
+    // Create a new writer that will prepare to write all the files to disk
+    // after their containing directory is created.
     const writer = new MultiFileWriter(this.fs)
 
     if (data.kind === CachedRouteKind.APP_ROUTE) {
@@ -376,7 +398,7 @@ export default class FileSystemCache implements CacheHandler {
 
       writer.append(htmlPath, data.html)
 
-      // Fallbacks don't generate a data file. Fully static PPR pages do.
+      // Fallbacks don't generate a data file.
       if (
         !ctx.fetchCache &&
         !ctx.isFallback &&
@@ -434,6 +456,7 @@ export default class FileSystemCache implements CacheHandler {
       )
     }
 
+    // Wait for all FS operations to complete.
     await writer.wait()
   }
 
@@ -441,6 +464,8 @@ export default class FileSystemCache implements CacheHandler {
     let rootDir: string
     switch (kind) {
       case IncrementalCacheKind.FETCH:
+        // we store in .next/cache/fetch-cache so it can be persisted
+        // across deploys
         rootDir = path.join(this.serverDistDir, '..', 'cache', 'fetch-cache')
         break
       case IncrementalCacheKind.PAGES:
