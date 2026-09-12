@@ -399,7 +399,11 @@ export default class FileSystemCache implements CacheHandler {
       writer.append(htmlPath, data.html)
 
       // Fallbacks don't generate a data file.
-      if (!ctx.fetchCache && !ctx.isFallback && !ctx.isRoutePPREnabled) {
+      if (
+        !ctx.fetchCache &&
+        !ctx.isFallback &&
+        (!ctx.isRoutePPREnabled || data.postponed == null)
+      ) {
         writer.append(
           this.getFilePath(
             `${key}${isAppPath ? RSC_SUFFIX : NEXT_DATA_SUFFIX}`,
